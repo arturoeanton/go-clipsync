@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClipSync</string>
+    <string name="accessibility_description">Permite sincronizar el portapapeles entre tu Android y tu Mac de forma automática via Bluetooth.</string>
+</resources>
