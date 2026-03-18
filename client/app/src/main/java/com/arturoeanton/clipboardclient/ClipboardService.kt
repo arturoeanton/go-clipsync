@@ -417,16 +417,32 @@ class ClipboardService : Service() {
             for (device in devices) {
                 if (device == excludeDevice) continue
                 try {
-                    // Notificar hash
-                    hashCharacteristic?.let { char ->
-                        char.value = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(lastClipHash.toInt()).array()
-                        gattServer?.notifyCharacteristicChanged(device, char, false)
+                    // Preparar datos
+                    val hashBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(lastClipHash.toInt()).array()
+                    val contentBytes = lastClipContent.toByteArray().let {
+                        if (it.size > 512) it.copyOfRange(0, 512) else it
                     }
-                    // Notificar contenido
-                    contentCharacteristic?.let { char ->
-                        val data = lastClipContent.toByteArray()
-                        char.value = if (data.size > 512) data.copyOfRange(0, 512) else data
-                        gattServer?.notifyCharacteristicChanged(device, char, false)
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        // API 33+: usar el nuevo método con valor explícito (evita cache)
+                        hashCharacteristic?.let { char ->
+                            gattServer?.notifyCharacteristicChanged(device, char, false, hashBytes)
+                        }
+                        contentCharacteristic?.let { char ->
+                            gattServer?.notifyCharacteristicChanged(device, char, false, contentBytes)
+                        }
+                    } else {
+                        // API < 33: método legacy con char.value
+                        hashCharacteristic?.let { char ->
+                            char.value = hashBytes
+                            @Suppress("DEPRECATION")
+                            gattServer?.notifyCharacteristicChanged(device, char, false)
+                        }
+                        contentCharacteristic?.let { char ->
+                            char.value = contentBytes
+                            @Suppress("DEPRECATION")
+                            gattServer?.notifyCharacteristicChanged(device, char, false)
+                        }
                     }
                     Log.d(TAG, "Notificado: ${device.address}")
                 } catch (e: SecurityException) {
