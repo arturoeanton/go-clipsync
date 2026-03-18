@@ -257,7 +257,7 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 			chunk[1] = byte(totalChunks)
 			copy(chunk[2:], contentBytes[start:end])
 
-			_, err := contentChar.Write(chunk)
+			_, err := contentChar.WriteWithoutResponse(chunk)
 			if err != nil {
 				fmt.Printf("[BLE] Error escribiendo chunk %d/%d: %s\n", i+1, totalChunks, err)
 				return fmt.Errorf("write chunk: %w", err)
