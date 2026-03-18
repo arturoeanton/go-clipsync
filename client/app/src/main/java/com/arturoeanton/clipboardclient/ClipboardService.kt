@@ -16,6 +16,7 @@ import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.CRC32
 
 class ClipboardService : Service() {
@@ -36,7 +37,7 @@ class ClipboardService : Service() {
         var instance: ClipboardService? = null
             private set
 
-        /** Enviar texto al Mac via BLE desde cualquier parte de la app */
+        /** Enviar texto a los desktops via BLE desde cualquier parte de la app */
         fun sendToMac(text: String) {
             val svc = instance ?: run {
                 Log.w(TAG, "Servicio no activo, no se puede enviar")
@@ -44,8 +45,8 @@ class ClipboardService : Service() {
             }
             svc.lastClipContent = text
             svc.lastClipHash = svc.crc32(text)
-            svc.notifyMac()
-            Log.i(TAG, "[Android → Mac] Enviado via Share (${text.length} chars)")
+            svc.notifyDesktops()
+            Log.i(TAG, "[Android → Desktops] Enviado via Share (${text.length} chars)")
         }
 
         /** Devuelve el último contenido cacheado del clipboard (fallback) */
@@ -59,7 +60,11 @@ class ClipboardService : Service() {
     private var clipboardManager: ClipboardManager? = null
     private var lastClipHash: Long = 0
     private var lastClipContent: String = ""
-    private var connectedDevice: BluetoothDevice? = null
+
+    // Multi-device: set of connected desktops
+    private val connectedDevices: MutableSet<BluetoothDevice> =
+        ConcurrentHashMap.newKeySet()
+
     private var contentCharacteristic: BluetoothGattCharacteristic? = null
     private var hashCharacteristic: BluetoothGattCharacteristic? = null
     private val chunkBuffer = mutableMapOf<Int, ByteArray>() // Para reassembly de chunks
@@ -91,6 +96,7 @@ class ClipboardService : Service() {
         } catch (e: SecurityException) {
             Log.e(TAG, "Error limpiando BLE: ${e.message}")
         }
+        connectedDevices.clear()
         Log.i(TAG, "Servicio detenido")
     }
 
@@ -130,7 +136,7 @@ class ClipboardService : Service() {
                 ))
             }
 
-            // Pairing Token characteristic (Read only — Mac reads it to validate)
+            // Pairing Token characteristic (Read only — desktops read it to validate)
             val pairingCharacteristic = BluetoothGattCharacteristic(
                 PAIRING_UUID,
                 BluetoothGattCharacteristic.PROPERTY_READ,
@@ -151,13 +157,19 @@ class ClipboardService : Service() {
     private val gattCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (newState == BluetoothGattServer.STATE_CONNECTED) {
-                connectedDevice = device
-                Log.i(TAG, "✅ Mac conectada: ${device.address}")
-                updateNotification("Conectado a Mac")
+                connectedDevices.add(device)
+                val count = connectedDevices.size
+                Log.i(TAG, "Desktop conectado: ${device.address} (total: $count)")
+                updateNotification("$count desktop(s) conectado(s)")
             } else {
-                connectedDevice = null
-                Log.i(TAG, "❌ Mac desconectada")
-                updateNotification("Esperando conexión...")
+                connectedDevices.remove(device)
+                val count = connectedDevices.size
+                Log.i(TAG, "Desktop desconectado: ${device.address} (total: $count)")
+                if (count > 0) {
+                    updateNotification("$count desktop(s) conectado(s)")
+                } else {
+                    updateNotification("Esperando conexión...")
+                }
             }
         }
 
@@ -181,7 +193,7 @@ class ClipboardService : Service() {
                         if (token.isNotEmpty()) {
                             val data = token.toByteArray()
                             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, data)
-                            Log.i(TAG, "Token de pairing enviado al Mac (${token.take(8)}...)")
+                            Log.i(TAG, "Token de pairing enviado a ${device.address} (${token.take(8)}...)")
                         } else {
                             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, byteArrayOf())
                             Log.w(TAG, "No hay token de pairing guardado")
@@ -211,8 +223,10 @@ class ClipboardService : Service() {
                         // Texto corto — un solo chunk
                         val text = String(data)
                         if (text.isNotBlank()) {
-                            Log.i(TAG, "[Mac → Android] Recibido (${text.length} chars)")
+                            Log.i(TAG, "[Desktop ${device.address} → Android] Recibido (${text.length} chars)")
                             setAndroidClipboard(text)
+                            // Relay to other connected desktops
+                            notifyDesktops(excludeDevice = device)
                         }
                     } else {
                         // Texto largo — buffering de chunks
@@ -231,8 +245,10 @@ class ClipboardService : Service() {
                             }
                             chunkBuffer.clear()
                             val text = String(full, 0, pos)
-                            Log.i(TAG, "[Mac → Android] Recibido completo (${text.length} chars, $totalChunks chunks)")
+                            Log.i(TAG, "[Desktop ${device.address} → Android] Recibido completo (${text.length} chars, $totalChunks chunks)")
                             setAndroidClipboard(text)
+                            // Relay to other connected desktops
+                            notifyDesktops(excludeDevice = device)
                         }
                     }
                 }
@@ -254,7 +270,7 @@ class ClipboardService : Service() {
                 if (responseNeeded) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                 }
-                Log.i(TAG, "Notificaciones configuradas para ${descriptor.characteristic.uuid}")
+                Log.i(TAG, "Notificaciones configuradas para ${descriptor.characteristic.uuid} (${device.address})")
             } catch (e: SecurityException) {
                 Log.e(TAG, "Error en descriptor write: ${e.message}")
             }
@@ -294,12 +310,12 @@ class ClipboardService : Service() {
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.i(TAG, "✅ Advertising activo como 'ClipSync'")
+            Log.i(TAG, "Advertising activo como 'ClipSync'")
             updateNotification("Advertising BLE activo")
         }
 
         override fun onStartFailure(errorCode: Int) {
-            Log.e(TAG, "❌ Error advertising: $errorCode")
+            Log.e(TAG, "Error advertising: $errorCode")
             updateNotification("Error BLE: $errorCode")
         }
     }
@@ -318,8 +334,8 @@ class ClipboardService : Service() {
                         if (hash != lastClipHash) {
                             lastClipContent = text
                             lastClipHash = hash
-                            Log.i(TAG, "[Android → Mac] Cambio detectado (${text.length} chars): ${text.take(50)}")
-                            notifyMac()
+                            Log.i(TAG, "[Android → Desktops] Cambio detectado (${text.length} chars): ${text.take(50)}")
+                            notifyDesktops()
                         }
                     }
                 }
@@ -346,7 +362,7 @@ class ClipboardService : Service() {
             Log.e(TAG, "Error leyendo clipboard inicial: ${e.message}")
         }
 
-        // Iniciar polling cada 750ms (listener no funciona para apps de background en Samsung)
+        // Iniciar polling cada 750ms
         clipboardHandler.post(clipboardPoller)
         Log.i(TAG, "Clipboard poller iniciado (750ms)")
     }
@@ -368,22 +384,47 @@ class ClipboardService : Service() {
         Log.i(TAG, "Token de pairing guardado: ${token.take(8)}...")
     }
 
-    private fun notifyMac() {
-        val device = connectedDevice ?: return
+    /**
+     * Notifica a todos los desktops conectados del cambio de clipboard.
+     * @param excludeDevice Si no es null, salta ese device (el que envió el texto, para evitar loops).
+     */
+    private fun notifyDesktops(excludeDevice: BluetoothDevice? = null) {
+        if (connectedDevices.isEmpty()) return
+
+        val devices = connectedDevices.toSet() // Snapshot thread-safe
+        val targetCount = if (excludeDevice != null) devices.size - 1 else devices.size
+
+        if (targetCount <= 0 && excludeDevice != null) {
+            Log.d(TAG, "No hay otros desktops para relay")
+            return
+        }
+
         try {
-            // Notificar hash
-            hashCharacteristic?.let { char ->
-                char.value = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(lastClipHash.toInt()).array()
-                gattServer?.notifyCharacteristicChanged(device, char, false)
+            for (device in devices) {
+                if (device == excludeDevice) continue
+                try {
+                    // Notificar hash
+                    hashCharacteristic?.let { char ->
+                        char.value = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(lastClipHash.toInt()).array()
+                        gattServer?.notifyCharacteristicChanged(device, char, false)
+                    }
+                    // Notificar contenido
+                    contentCharacteristic?.let { char ->
+                        val data = lastClipContent.toByteArray()
+                        char.value = if (data.size > 512) data.copyOfRange(0, 512) else data
+                        gattServer?.notifyCharacteristicChanged(device, char, false)
+                    }
+                    Log.d(TAG, "Notificado: ${device.address}")
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "Error notificando ${device.address}: ${e.message}")
+                }
             }
-            // Notificar contenido
-            contentCharacteristic?.let { char ->
-                val data = lastClipContent.toByteArray()
-                char.value = if (data.size > 512) data.copyOfRange(0, 512) else data
-                gattServer?.notifyCharacteristicChanged(device, char, false)
+
+            if (excludeDevice != null) {
+                Log.i(TAG, "[Relay] Clipboard reenviado a $targetCount desktop(s)")
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Error notificando: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en notifyDesktops: ${e.message}")
         }
     }
 
@@ -414,11 +455,11 @@ class ClipboardService : Service() {
 
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_share)
-            .setContentTitle("📋 ClipSync")
+            .setContentTitle("ClipSync")
             .setContentText(text)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(
-                null, "📤 Enviar Clipboard a Mac", sendPending
+                null, "Enviar Clipboard", sendPending
             ).build())
             .build()
     }

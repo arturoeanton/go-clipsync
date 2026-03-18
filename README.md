@@ -1,275 +1,260 @@
-# 📋 ClipSync — Universal Clipboard via Bluetooth
+# ClipSync — Universal Clipboard via Bluetooth
 
-> Sync your clipboard between macOS and Android over Bluetooth Low Energy. No cloud, no WiFi required.
-
-> Sincronizá tu portapapeles entre macOS y Android via Bluetooth Low Energy. Sin nube, sin WiFi.
+> Sync your clipboard between macOS/Linux and Android over Bluetooth Low Energy. No cloud, no WiFi required.
 
 ---
 
-## ✨ Features / Características
+## Features
 
 | Feature | Description |
 |---|---|
-| 🔄 **Bidirectional Sync** | Copy on Mac → paste on Android, and vice versa |
-| 🔒 **QR Pairing** | Secure token-based pairing via QR code scan |
-| 📡 **BLE Only** | Works over Bluetooth LE — no WiFi or internet needed |
-| 📦 **Chunked Transfer** | Supports large text (code, articles) up to ~126KB |
-| 🌐 **Web Dashboard** | Premium dark UI at `localhost:8066` with history, search, stats |
-| 💾 **SQLite History** | Persistent clipboard history with search |
-| 🔗 **Persistent Pairing** | Pair once, stays paired across restarts |
-| ⚙ **Accessibility Service** | Automatic Android → Mac sync (no manual action) |
+| **Bidirectional Sync** | Copy on desktop → paste on Android, and vice versa |
+| **QR Pairing** | Secure token-based pairing via QR code scan |
+| **BLE Only** | Works over Bluetooth LE — no WiFi or internet needed |
+| **Chunked Transfer** | Supports large text (code, articles) up to ~126KB |
+| **Web Dashboard** | Clean flat UI at `localhost:8066` with history, search, stats |
+| **SQLite History** | Persistent clipboard history with search |
+| **Persistent Pairing** | Pair once, stays paired across restarts |
+| **Cross-platform** | Runs on macOS and Linux (auto-detected) |
+| **Accessibility Service** | Automatic Android → desktop sync (no manual action) |
 
-## 🏗 Architecture / Arquitectura
+## Architecture
 
 ```
 ┌──────────────────┐          BLE           ┌──────────────────┐
-│                  │ ◄────────────────────► │                  │
-│   macOS (Go)     │   Clipboard sync       │   Android (Kt)   │
-│   BLE Central    │   Chunked transfer     │   BLE Peripheral │
-│                  │   Token validation     │                  │
-│   ├── ble.go     │                        │   ├── ClipboardService.kt
-│   ├── clipboard  │                        │   ├── MainActivity.kt
-│   ├── db.go      │                        │   ├── ClipAccessibilityService.kt
-│   ├── web.go     │                        │   └── ShareReceiverActivity.kt
-│   └── qr.go      │                        │
-│                  │                        │
-│   localhost:8066 │                        │   📷 QR Scanner
-│   Dashboard      │                        │   One-button UX
+│  Desktop (Go)    │ ◄────────────────────► │  Android (Kt)    │
+│  macOS / Linux   │   Clipboard sync       │  BLE Peripheral  │
+│  BLE Central     │   Chunked transfer     │                  │
+│                  │   Token validation     │  ClipboardService│
+│  ├── main.go     │                        │  MainActivity    │
+│  ├── ble.go      │                        │  AccessibilitySvc│
+│  ├── clipboard.go│                        │  ShareReceiver   │
+│  ├── db.go       │                        │                  │
+│  ├── web.go      │                        │                  │
+│  └── qr.go       │                        │                  │
+│                  │                        │                  │
+│  localhost:8066  │                        │  QR Scanner      │
 └──────────────────┘                        └──────────────────┘
 ```
 
-## 📱 Screenshots
+## Quick Start
 
-### Web Dashboard
-- Live BLE connection status
-- Clipboard history with search
-- QR code for secure pairing
-- Unpair & clear database buttons
-
-### Android App
-- One-button experience: scan QR → syncing
-- Premium dark theme
-- Automatic BLE service
-
-## 🚀 Quick Start
-
-### Prerequisites / Requisitos
+### Prerequisites
 
 **macOS:**
 - Go 1.21+
 - Bluetooth enabled
 
+**Linux (Ubuntu/Debian):**
+- Go 1.21+
+- Bluetooth enabled
+- System dependencies:
+  ```bash
+  sudo apt install -y bluez libbluetooth-dev libdbus-1-dev xclip
+  sudo systemctl enable --now bluetooth
+  ```
+
 **Android:**
 - Android 10+ (API 29)
-- ADB (`brew install android-platform-tools`)
+- ADB installed
 
-### 1. Install as macOS Service (recommended)
+### 1. Install the desktop service
 
+**macOS:**
 ```bash
 bash run.sh
 ```
 
-This will:
-- Compile the Go server
-- Install the binary to `~/bin/clipsync-server`
-- Register a **LaunchAgent** that starts on login and auto-restarts
-- Open the dashboard at **http://localhost:8066**
-
-> The server **only listens on localhost** — it's not accessible from the network.
-
-**Useful commands after install:**
-
+**Linux (Ubuntu/Debian):**
 ```bash
-# Stop service
-launchctl unload ~/Library/LaunchAgents/com.clipsync.server.plist
-
-# Start service
-launchctl load ~/Library/LaunchAgents/com.clipsync.server.plist
-
-# View logs
-tail -f ~/Library/Logs/clipsync-server.out.log
+bash run-ubuntu.sh
 ```
 
-#### Manual build (alternative)
+The Ubuntu script automatically installs all required packages (`bluez`, `libbluetooth-dev`, `libdbus-1-dev`, `xclip`), compiles the binary, and registers a systemd user service.
 
+| OS | Script | Service type | Auto-start |
+|---|---|---|---|
+| macOS | `run.sh` | LaunchAgent | On login |
+| Linux | `run-ubuntu.sh` | systemd user service | On login |
+
+**macOS commands:**
+```bash
+launchctl unload ~/Library/LaunchAgents/com.clipsync.server.plist  # stop
+launchctl load ~/Library/LaunchAgents/com.clipsync.server.plist    # start
+tail -f ~/Library/Logs/clipsync-server.out.log                     # logs
+```
+
+**Linux commands:**
+```bash
+systemctl --user stop clipsync      # stop
+systemctl --user start clipsync     # start
+journalctl --user -u clipsync -f    # logs
+```
+
+**Manual build (alternative):**
 ```bash
 cd cmd
 go mod tidy
-CGO_ENABLED=1 go build -o clipsync-ble .
-./clipsync-ble
+CGO_ENABLED=1 go build -o clipsync-server .
+./clipsync-server
 ```
 
-### 2. Install the Android App
+### 2. Install the Android app
 
 ```bash
 bash install-android.sh
 ```
 
-This will detect your connected Android device and install the APK via ADB. If the APK hasn't been built yet, it will compile it automatically.
-
-**Manual install (alternative):**
-
-```bash
-cd client
-ANDROID_HOME=~/Library/Android/sdk ./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+Detects the connected device and installs via ADB. Compiles the APK if needed.
 
 ### 3. Pair
 
 1. Open **http://localhost:8066** — the QR code is ready
-2. Open **ClipSync** on your Android
-3. Tap **"📷 Escanear QR"** — scan the QR from the dashboard
-4. Done! Clipboard syncs automatically
+2. Open **ClipSync** on Android
+3. Tap **"Escanear QR"** — scan the QR
+4. Done — clipboard syncs automatically
 
-## 🔒 Security Model
-
-```
-1. Mac generates random token → QR code
-2. Android scans QR → saves token locally
-3. On BLE connect: Mac reads token from Android
-4. If tokens match → sync enabled ✅
-5. If not → connection rejected ❌
-6. Token persists on both sides (survives restarts)
-7. "Unpair" on dashboard breaks the link instantly
-```
+## Security Model
 
 - **No cloud**: All data stays local
 - **No WiFi**: BLE is direct point-to-point
 - **Token-gated**: No clipboard data flows without matching tokens
+- **Persistent pairing**: Survives restarts on both sides
+- **Unpair**: From the dashboard, sync stops instantly
 
-## 📡 BLE Protocol
+## BLE Protocol
 
 | UUID | Name | Direction | Purpose |
 |---|---|---|---|
 | `...def0` | Service | — | ClipSync service identifier |
-| `...def1` | Content | Bidirectional | Clipboard text (chunked for large text) |
-| `...def2` | Hash | Android → Mac | CRC32 change notification |
-| `...def3` | Pairing | Mac reads | Security token for authentication |
+| `...def1` | Content | Bidirectional | Clipboard text (chunked) |
+| `...def2` | Hash | Android → Desktop | CRC32 change notification |
+| `...def3` | Pairing | Desktop reads | Security token |
 
-### Chunked Transfer Protocol
-
-Large text is split into chunks with a 2-byte header:
+### Chunked Transfer
 
 ```
 [chunkIndex (1 byte)] [totalChunks (1 byte)] [data (up to 498 bytes)]
 ```
 
-- Max 255 chunks × 498 bytes = ~126KB per transfer
-- 50ms delay between chunks for reliability
+Max 255 chunks × 498 bytes = ~126KB per transfer.
 
-## 🌐 Web Dashboard API
+## Web Dashboard API
 
 | Endpoint | Method | Description |
 |---|---|---|
 | `/` | GET | Dashboard UI |
-| `/api/status` | GET | BLE connection status + stats |
-| `/api/history` | GET | Clipboard history (supports `?q=search`) |
-| `/api/qr` | GET | Get/reuse pairing QR token |
-| `/api/qr/new` | GET | Force generate new QR token |
+| `/api/status` | GET | BLE status + stats |
+| `/api/history` | GET | Clipboard history (`?q=search`) |
+| `/api/qr` | GET | Get pairing QR token |
+| `/api/qr/new` | GET | Force new QR token |
 | `/api/pair` | GET | Check pairing status |
 | `/api/unpair` | GET | Break the pairing |
-| `/api/cleardb` | GET | Delete all clipboard history |
-| `/api/copy` | POST | Copy text to Mac clipboard |
+| `/api/cleardb` | GET | Delete all history |
+| `/api/copy` | POST | Copy text to desktop clipboard |
 
-## 🗂 Project Structure
+## Project Structure
 
 ```
 go-clipsync/
-├── run.sh                  # Install as macOS LaunchAgent service
+├── run.sh                  # Install service (macOS LaunchAgent)
+├── run-ubuntu.sh           # Install service (Linux systemd + apt dependencies)
 ├── install-android.sh      # Install Android app via ADB
-├── cmd/                    # Go server (macOS)
-│   ├── main.go             # Entry point, UUIDs, signal handling
-│   ├── ble.go              # BLE Central: scan, connect, token validation, sync
-│   ├── clipboard.go        # macOS clipboard read/write (pbcopy/pbpaste)
+├── cmd/                    # Go server (macOS + Linux)
+│   ├── main.go             # Entry point, OS detection, UUIDs
+│   ├── ble.go              # BLE Central: scan, connect, sync
+│   ├── clipboard.go        # Clipboard read/write (cross-platform)
 │   ├── db.go               # SQLite history, stats, search
 │   ├── qr.go               # Token generation, pairing persistence
-│   ├── web.go              # HTTP dashboard + API endpoints (localhost:8066)
+│   ├── web.go              # HTTP dashboard + API (localhost:8066)
 │   ├── go.mod
 │   └── go.sum
-│
 └── client/                 # Android app (Kotlin)
     └── app/src/main/
         ├── java/.../
-        │   ├── MainActivity.kt              # One-button QR scan UI
-        │   ├── ClipboardService.kt           # BLE GATT server + clipboard
-        │   ├── ClipAccessibilityService.kt   # Auto-sync via Accessibility
-        │   ├── ShareReceiverActivity.kt      # Share intent receiver
-        │   └── SendClipboardActivity.kt      # Notification action sender
+        │   ├── MainActivity.kt
+        │   ├── ClipboardService.kt
+        │   ├── ClipAccessibilityService.kt
+        │   ├── ShareReceiverActivity.kt
+        │   └── SendClipboardActivity.kt
         ├── res/
-        │   ├── xml/accessibility_service_config.xml
-        │   └── values/strings.xml
         └── AndroidManifest.xml
 ```
 
-## 🐧 Ubuntu Support
+## Battery Impact
 
-The Go server is 95% cross-platform. To run on Ubuntu:
-
-```bash
-# Install dependencies
-sudo apt install libdbus-dev libbluetooth-dev xclip
-
-# Change clipboard commands in clipboard.go:
-#   pbcopy  → xclip -selection clipboard
-#   pbpaste → xclip -selection clipboard -o
-
-# Build
-CGO_ENABLED=1 go build -o clipsync-ble .
-```
-
-## ⚡ Battery Impact
-
-| | Android | macOS |
+| | Android | Desktop |
 |---|---|---|
 | BLE | ~1-2mA (LE advertising) | Negligible |
 | Clipboard polling | ~0.5%/hour | ~0.1% CPU |
 | RAM | ~25MB | ~35MB |
 | **Estimated total** | **~1-2% battery/hour** | **Imperceptible** |
 
-## 📋 Roadmap
+## Roadmap
 
+- [x] macOS LaunchAgent service — `run.sh`
+- [x] Linux systemd user service — `run.sh`
+- [x] ADB install script — `install-android.sh`
+- [x] OS auto-detection (macOS / Linux)
 - [ ] File transfer via HTTP (same WiFi)
 - [ ] Auto-start on boot (Android)
-- [x] macOS LaunchAgent (auto-start on login) — `run.sh`
-- [x] ADB install script — `install-android.sh`
-- [ ] Ubuntu/Linux support
-- [ ] Swift helper for Bluetooth Classic file transfer (no WiFi)
 - [ ] iOS companion app
 
-## 📝 License
+## License
 
 MIT
 
 ---
 
-# 📋 ClipSync — Portapapeles Universal via Bluetooth
+# ClipSync — Portapapeles Universal via Bluetooth
 
-> Sincronizá tu portapapeles entre macOS y Android via Bluetooth Low Energy. Sin nube, sin WiFi.
+> Sincronizá tu portapapeles entre macOS/Linux y Android via Bluetooth Low Energy. Sin nube, sin WiFi.
 
-## 🚀 Inicio Rápido
+## Inicio Rápido
 
-### 1. Instalar como servicio macOS (recomendado)
+### Requisitos
 
+**macOS:** Go 1.21+ y Bluetooth activado.
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt install -y bluez libbluetooth-dev libdbus-1-dev xclip
+sudo systemctl enable --now bluetooth
+```
+
+**Android:** Android 10+ y ADB instalado.
+
+### 1. Instalar el servicio en desktop
+
+**macOS:**
 ```bash
 bash run.sh
 ```
 
-Compila el servidor, lo instala como **LaunchAgent** (arranca al login, se reinicia solo) y abre el dashboard en **http://localhost:8066**.
-
-> El servidor solo escucha en **localhost** — no es accesible desde la red.
-
-**Comandos útiles:**
-
+**Linux (Ubuntu/Debian):**
 ```bash
-# Detener servicio
-launchctl unload ~/Library/LaunchAgents/com.clipsync.server.plist
+bash run-ubuntu.sh
+```
 
-# Arrancar servicio
-launchctl load ~/Library/LaunchAgents/com.clipsync.server.plist
+El script de Ubuntu instala automáticamente todos los paquetes necesarios (`bluez`, `libbluetooth-dev`, `libdbus-1-dev`, `xclip`), compila el binario y crea un servicio systemd.
 
-# Ver logs
-tail -f ~/Library/Logs/clipsync-server.out.log
+| OS | Script | Tipo de servicio |
+|---|---|---|
+| macOS | `run.sh` | LaunchAgent (arranca al login) |
+| Linux | `run-ubuntu.sh` | systemd user service (arranca al login) |
+
+**Comandos macOS:**
+```bash
+launchctl unload ~/Library/LaunchAgents/com.clipsync.server.plist  # detener
+launchctl load ~/Library/LaunchAgents/com.clipsync.server.plist    # arrancar
+tail -f ~/Library/Logs/clipsync-server.out.log                     # logs
+```
+
+**Comandos Linux:**
+```bash
+systemctl --user stop clipsync      # detener
+systemctl --user start clipsync     # arrancar
+journalctl --user -u clipsync -f    # logs
 ```
 
 ### 2. Instalar la app Android
@@ -278,13 +263,13 @@ tail -f ~/Library/Logs/clipsync-server.out.log
 bash install-android.sh
 ```
 
-Detecta el dispositivo conectado por USB y lo instala via ADB. Si el APK no existe, lo compila automáticamente.
+Detecta el dispositivo conectado por USB y lo instala via ADB.
 
 ### 3. Vincular
 
 1. Abrí **http://localhost:8066** — el QR ya está listo
 2. Abrí **ClipSync** en tu Android
-3. Tocá **"📷 Escanear QR"** — escaneá el QR del dashboard
+3. Tocá **"Escanear QR"**
 4. ¡Listo! El portapapeles se sincroniza automáticamente
 
 ### Seguridad
@@ -295,12 +280,10 @@ Detecta el dispositivo conectado por USB y lo instala via ADB. Si el APK no exis
 - **Pairing persistente**: Vinculás una vez, sobrevive reinicios
 - **Desvincular**: Desde el dashboard, el sync se corta al instante
 
-### Sync Automático (Android → Mac)
-
-Para sincronizar automáticamente sin tocar botones:
+### Sync Automático (Android → Desktop)
 
 1. En el Android: Ajustes → Accesibilidad → ClipSync → Activar
-2. Ahora todo lo que copies en el Android aparece en la Mac
+2. Todo lo que copies en el Android aparece automáticamente en el desktop
 
 ### Dashboard Web
 
