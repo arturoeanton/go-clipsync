@@ -65,6 +65,8 @@ class ClipboardService : Service() {
     private val connectedDevices: MutableSet<BluetoothDevice> =
         ConcurrentHashMap.newKeySet()
 
+    fun getConnectedCount(): Int = connectedDevices.size
+
     private var contentCharacteristic: BluetoothGattCharacteristic? = null
     private var hashCharacteristic: BluetoothGattCharacteristic? = null
     private val chunkBuffer = mutableMapOf<Int, ByteArray>() // Para reassembly de chunks
@@ -374,14 +376,25 @@ class ClipboardService : Service() {
     }
 
     fun getPairingToken(): String {
-        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val tokens = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getString(PREF_TOKEN, "") ?: ""
+        return tokens
     }
 
     fun savePairingToken(token: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val existing = prefs.getString(PREF_TOKEN, "") ?: ""
+        val tokenSet = existing.split("|").filter { it.isNotBlank() }.toMutableSet()
+        tokenSet.add(token)
+        val joined = tokenSet.joinToString("|")
+        prefs.edit().putString(PREF_TOKEN, joined).apply()
+        Log.i(TAG, "Token de pairing agregado: ${token.take(8)}... (total: ${tokenSet.size} tokens)")
+    }
+
+    fun clearPairingTokens() {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .edit().putString(PREF_TOKEN, token).apply()
-        Log.i(TAG, "Token de pairing guardado: ${token.take(8)}...")
+            .edit().putString(PREF_TOKEN, "").apply()
+        Log.i(TAG, "Todos los tokens de pairing borrados")
     }
 
     /**

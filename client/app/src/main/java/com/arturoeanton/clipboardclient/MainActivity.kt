@@ -179,12 +179,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkExistingPairing() {
-        val token = getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
+        val tokens = getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
             .getString("pairing_token", "") ?: ""
-        if (token.isNotEmpty()) {
-            statusText.text = "Vinculado y sincronizando"
+        val tokenCount = tokens.split("|").filter { it.isNotBlank() }.size
+        if (tokenCount > 0) {
+            val connectedCount = ClipboardService.instance?.getConnectedCount() ?: 0
+            statusText.text = if (connectedCount > 0) {
+                "$connectedCount desktop(s) conectado(s)\n$tokenCount token(s) vinculado(s)"
+            } else {
+                "$tokenCount desktop(s) vinculado(s)\nEsperando conexión BLE..."
+            }
             statusText.setTextColor(Color.parseColor(COLOR_GREEN))
-            actionBtn.text = "Re-escanear QR"
+            actionBtn.text = "Vincular otro desktop"
             (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor(COLOR_GREEN))
         }
     }
@@ -222,23 +228,32 @@ class MainActivity : AppCompatActivity() {
         if (contents.startsWith("clipsync://pair?token=")) {
             val token = contents.substringAfter("token=")
 
-            // 1. Parar servicio viejo
+            // 1. Agregar token al set (no reemplazar)
+            val svc = ClipboardService.instance
+            if (svc != null) {
+                svc.savePairingToken(token)
+            } else {
+                // El servicio no está corriendo — guardar directamente como set
+                val prefs = getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
+                val existing = prefs.getString("pairing_token", "") ?: ""
+                val tokenSet = existing.split("|").filter { it.isNotBlank() }.toMutableSet()
+                tokenSet.add(token)
+                prefs.edit().putString("pairing_token", tokenSet.joinToString("|")).apply()
+            }
+
+            // 2. Reiniciar BLE con tokens actualizados
             stopService(Intent(this, ClipboardService::class.java))
-
-            // 2. Guardar token nuevo
-            getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
-                .edit().putString("pairing_token", token).apply()
-
-            // 3. Reiniciar BLE con token nuevo
             ContextCompat.startForegroundService(this, Intent(this, ClipboardService::class.java))
 
-            // 4. Actualizar UI
-            statusText.text = "Vinculado y sincronizando"
+            // 3. Actualizar UI
+            val tokenCount = getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
+                .getString("pairing_token", "")?.split("|")?.filter { it.isNotBlank() }?.size ?: 0
+            statusText.text = "$tokenCount desktop(s) vinculado(s)\nToken agregado correctamente"
             statusText.setTextColor(Color.parseColor(COLOR_GREEN))
-            actionBtn.text = "Re-escanear QR"
+            actionBtn.text = "Vincular otro desktop"
             (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor(COLOR_GREEN))
 
-            Toast.makeText(this, "Token actualizado — sync activo", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Desktop vinculado ($tokenCount total)", Toast.LENGTH_LONG).show()
         } else {
             Toast.makeText(this, "QR no válido — escaneá el de ClipSync", Toast.LENGTH_SHORT).show()
         }

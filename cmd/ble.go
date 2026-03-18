@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"time"
 
 	"tinygo.org/x/bluetooth"
@@ -124,27 +125,37 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 		return fmt.Errorf("device has no pairing characteristic")
 	}
 
-	buf := make([]byte, 64)
+	buf := make([]byte, 512)
 	n, err := pairingChar.Read(buf)
 	if err != nil {
 		fmt.Printf("[BLE] ⛔ Error leyendo token: %s\n", err)
 		return fmt.Errorf("cannot read pairing token: %w", err)
 	}
 
-	remoteToken := string(buf[:n])
-	if remoteToken == "" {
+	remoteTokens := string(buf[:n])
+	if remoteTokens == "" {
 		fmt.Println("[BLE] ⛔ Android sin token — debe escanear el QR primero.")
 		return fmt.Errorf("android has no pairing token")
 	}
 
-	if remoteToken != expectedToken {
+	// Multi-token: Android returns pipe-separated tokens
+	tokenFound := false
+	for _, t := range strings.Split(remoteTokens, "|") {
+		if t == expectedToken {
+			tokenFound = true
+			break
+		}
+	}
+
+	if !tokenFound {
 		fmt.Println("[BLE] ❌ Token NO coincide. Rechazando.")
+		fmt.Println("[BLE] El Android debe escanear el QR de este desktop.")
 		return fmt.Errorf("pairing token mismatch")
 	}
 
 	// Si era pendiente, confirmar el pairing
 	if !isPaired() {
-		confirmPairing(remoteToken)
+		confirmPairing(expectedToken)
 	}
 	fmt.Println("[BLE] ✅ Token verificado — sync autorizado")
 
