@@ -9,6 +9,7 @@
 | Feature | Description |
 |---|---|
 | **Bidirectional Sync** | Copy on desktop → paste on Android, and vice versa |
+| **Multi-Desktop** | N desktops sync through one Android (relay hub) |
 | **QR Pairing** | Secure token-based pairing via QR code scan |
 | **BLE Only** | Works over Bluetooth LE — no WiFi or internet needed |
 | **Chunked Transfer** | Supports large text (code, articles) up to ~126KB |
@@ -21,20 +22,19 @@
 ## Architecture
 
 ```
-┌──────────────────┐          BLE           ┌──────────────────┐
-│  Desktop (Go)    │ ◄────────────────────► │  Android (Kt)    │
-│  macOS / Linux   │   Clipboard sync       │  BLE Peripheral  │
-│  BLE Central     │   Chunked transfer     │                  │
-│                  │   Token validation     │  ClipboardService│
-│  ├── main.go     │                        │  MainActivity    │
-│  ├── ble.go      │                        │  AccessibilitySvc│
-│  ├── clipboard.go│                        │  ShareReceiver   │
-│  ├── db.go       │                        │                  │
-│  ├── web.go      │                        │                  │
-│  └── qr.go       │                        │                  │
-│                  │                        │                  │
-│  localhost:8066  │                        │  QR Scanner      │
+┌──────────────────┐                        ┌──────────────────┐
+│  Desktop 1 (Go)  │──►┐                    │  Android (Kt)    │
+│  macOS           │   │       BLE          │  BLE Peripheral  │
+├──────────────────┤   ├──────────────────►  │  + Relay Hub     │
+│  Desktop 2 (Go)  │──►┘  Clipboard sync    │                  │
+│  Linux           │      Chunked transfer  │  ClipboardService│
+├──────────────────┤      Token validation  │  MainActivity    │
+│  Desktop N (Go)  │──►                     │  AccessibilitySvc│
+│  macOS / Linux   │                        │                  │
 └──────────────────┘                        └──────────────────┘
+
+Copy on any desktop → Android relays to all other desktops
+Copy on Android    → all desktops receive it
 ```
 
 ## Quick Start
@@ -109,10 +109,12 @@ Detects the connected device and installs via ADB. Compiles the APK if needed.
 
 ### 3. Pair
 
-1. Open **http://localhost:8066** — the QR code is ready
+1. Open **http://localhost:8066** on your first desktop — the QR code is ready
 2. Open **ClipSync** on Android
 3. Tap **"Escanear QR"** — scan the QR
 4. Done — clipboard syncs automatically
+
+**Multi-desktop:** Repeat for each desktop — open its dashboard, scan its QR from the Android app. Each scan adds a token. The Android relays clipboard between all paired desktops.
 
 ## Security Model
 
@@ -193,9 +195,10 @@ go-clipsync/
 ## Roadmap
 
 - [x] macOS LaunchAgent service — `run.sh`
-- [x] Linux systemd user service — `run.sh`
+- [x] Linux systemd user service — `run-ubuntu.sh`
 - [x] ADB install script — `install-android.sh`
 - [x] OS auto-detection (macOS / Linux)
+- [x] Multi-desktop sync (N desktops via Android relay)
 - [ ] File transfer via HTTP (same WiFi)
 - [ ] Auto-start on boot (Android)
 - [ ] iOS companion app
@@ -267,10 +270,12 @@ Detecta el dispositivo conectado por USB y lo instala via ADB.
 
 ### 3. Vincular
 
-1. Abrí **http://localhost:8066** — el QR ya está listo
+1. Abrí **http://localhost:8066** en tu primer desktop — el QR ya está listo
 2. Abrí **ClipSync** en tu Android
 3. Tocá **"Escanear QR"**
 4. ¡Listo! El portapapeles se sincroniza automáticamente
+
+**Multi-desktop:** Repetí para cada desktop — abrí su dashboard, escaneá su QR desde la app Android. Cada escaneo agrega un token. El Android hace relay del clipboard entre todos los desktops vinculados.
 
 ### Seguridad
 
