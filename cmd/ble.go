@@ -1,11 +1,11 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -159,41 +159,39 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 	}
 	fmt.Println("[BLE] ✅ Token verificado — sync autorizado")
 
-	// Suscribirse a notificaciones del hash (Android → Mac)
-	err = hashChar.EnableNotifications(func(buf []byte) {
+	// Suscribirse a notificaciones del contenido (Android → Desktop)
+	err = contentChar.EnableNotifications(func(buf []byte) {
 		if !isPaired() {
-			return // Silenciosamente ignorar si no está pareado
+			return
 		}
-		if len(buf) >= 4 {
-			remoteHash := binary.LittleEndian.Uint32(buf)
+		text := string(buf)
+		if text != "" {
+			fmt.Printf("[Android → %s] Recibido via notificación (%d chars)\n", osName, len(text))
 			clipMu.Lock()
-			localHash := lastClipHash
+			lastClipContent = text
+			lastClipHash = clipHash(text)
+			fromAndroid = true
 			clipMu.Unlock()
 
-			if remoteHash != localHash {
-				// El clipboard de Android cambió, leer el contenido completo
-				var fullContent []byte
-				offset := 0
-				for {
-					readBuf := make([]byte, 512)
-					n, err := contentChar.Read(readBuf)
-					if err != nil {
-						fmt.Printf("[BLE] Error leyendo clipboard: %s\n", err)
-						break
-					}
-					fullContent = append(fullContent, readBuf[:n]...)
-					if n < 512 {
-						break // Último chunk
-					}
-					offset += n
-				}
-				text := string(fullContent)
-				if text != "" {
-					fmt.Printf("[Android → %s] Recibido (%d chars)\n", osName, len(text))
-					setClipboard(text)
-				}
+			if err := clipboard.WriteAll(text); err != nil {
+				fmt.Printf("[!] Error escribiendo clipboard %s: %s\n", osName, err)
+			} else {
+				fmt.Printf("[+] Clipboard %s actualizado (%d chars)\n", osName, len(text))
+				saveClip(text, "android", clipHash(text))
 			}
 		}
+	})
+	if err != nil {
+		fmt.Printf("[BLE] Warn: no se pudo habilitar content notifications: %s\n", err)
+	}
+
+	// Suscribirse a notificaciones del hash (backup si content notification no lleva datos)
+	err = hashChar.EnableNotifications(func(buf []byte) {
+		if !isPaired() {
+			return
+		}
+		// Hash notifications ya no necesitan hacer GATT read
+		// El contenido llega via content notification
 	})
 	if err != nil {
 		return fmt.Errorf("enable hash notifications: %w", err)

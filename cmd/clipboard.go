@@ -33,6 +33,14 @@ func clipboardWatcher() {
 		currentHash := clipHash(currentText)
 
 		clipMu.Lock()
+		// Skip if this change came from Android (prevent echo)
+		if fromAndroid && currentHash == lastClipHash {
+			fromAndroid = false
+			clipMu.Unlock()
+			continue
+		}
+		fromAndroid = false
+
 		if currentHash != lastClipHash {
 			fmt.Printf("[%s → Android] Cambio detectado (%d chars)\n", osName, len(currentText))
 			lastClipContent = currentText

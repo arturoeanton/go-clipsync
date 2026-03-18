@@ -24,6 +24,7 @@ var (
 	lastClipHash    uint32
 	bleReady        bool
 	clipChanged     bool
+	fromAndroid     bool // suppress echo back to Android
 
 	// OS detection
 	osName   string // "macOS" or "Linux" (display name)
