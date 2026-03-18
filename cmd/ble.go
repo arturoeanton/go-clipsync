@@ -178,7 +178,7 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 				}
 				text := string(fullContent)
 				if text != "" {
-					fmt.Printf("[Android → Mac] Recibido (%d chars)\n", len(text))
+					fmt.Printf("[Android → %s] Recibido (%d chars)\n", osName, len(text))
 					setClipboard(text)
 				}
 			}
@@ -195,7 +195,7 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 	clipMu.Lock()
 	if lastClipContent != "" {
 		clipChanged = true
-		fmt.Printf("[BLE] Clipboard Mac actual: %d chars — enviando...\n", len(lastClipContent))
+		fmt.Printf("[BLE] Clipboard %s actual: %d chars — enviando...\n", osName, len(lastClipContent))
 	}
 	clipMu.Unlock()
 
@@ -267,7 +267,7 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
-		fmt.Printf("[Mac → Android] ✅ Enviado (%d bytes, %d chunks)\n", len(contentBytes), totalChunks)
+		fmt.Printf("[%s → Android] Enviado (%d bytes, %d chunks)\n", osName, len(contentBytes), totalChunks)
 	}
 
 	return nil

@@ -291,7 +291,7 @@ header p{color:var(--text-secondary);margin-top:4px;font-size:.875rem;font-weigh
 <div class="container">
   <header>
     <h1>ClipSync</h1>
-    <p>Clipboard universal — sincronización via BLE</p>
+    <p>Clipboard universal — sincronización multi-desktop via BLE</p>
   </header>
 
   <div class="stats" id="stats">
@@ -313,7 +313,7 @@ header p{color:var(--text-secondary);margin-top:4px;font-size:.875rem;font-weigh
     <div class="section-title">Vinculación</div>
     <div class="pair-card" id="qr-section">
       <div id="qr-unpaired">
-        <p>Escaneá el código QR desde la app ClipSync en Android para vincular</p>
+        <p>Escaneá el código QR desde la app ClipSync en Android para vincular. Podés usar el mismo QR en múltiples desktops.</p>
         <div id="qr-canvas"></div>
         <div style="margin-top:16px">
           <button class="btn btn-secondary" onclick="regenerateQR()">Regenerar QR</button>
