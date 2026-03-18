@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -25,6 +26,15 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 1001
+
+        // Design palette (matches web dashboard)
+        private const val COLOR_BG         = "#F5F5F7"
+        private const val COLOR_TEXT       = "#1D1D1F"
+        private const val COLOR_SECONDARY  = "#86868B"
+        private const val COLOR_TERTIARY   = "#AEAEB2"
+        private const val COLOR_ACCENT     = "#0071E3"
+        private const val COLOR_GREEN      = "#34C759"
+        private const val COLOR_BORDER     = "#E8E8ED"
     }
 
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
@@ -35,11 +45,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.parseColor("#0D0D1A")
-        window.navigationBarColor = Color.parseColor("#0D0D1A")
 
         val root = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#0D0D1A"))
+            setBackgroundColor(Color.parseColor(COLOR_BG))
         }
 
         val layout = LinearLayout(this).apply {
@@ -48,38 +56,30 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(32), dp(80), dp(32), dp(48))
         }
 
-        // === Icon ===
-        layout.addView(TextView(this).apply {
-            text = "📋"
-            textSize = 72f
-            gravity = Gravity.CENTER
-        })
-
-        layout.addView(spacer(16))
-
         // === Title ===
         layout.addView(TextView(this).apply {
             text = "ClipSync"
-            setTextColor(Color.WHITE)
-            textSize = 36f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.parseColor(COLOR_TEXT))
+            textSize = 28f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = Gravity.CENTER
+            letterSpacing = -0.02f
         })
 
         layout.addView(TextView(this).apply {
-            text = "Universal Clipboard via Bluetooth"
-            setTextColor(Color.parseColor("#8888AA"))
+            text = "Clipboard universal via Bluetooth"
+            setTextColor(Color.parseColor(COLOR_SECONDARY))
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(0, dp(4), 0, 0)
         })
 
-        layout.addView(spacer(40))
+        layout.addView(spacer(48))
 
         // === Status ===
         statusText = TextView(this).apply {
             text = "Escaneá el QR del dashboard\npara vincular y sincronizar"
-            setTextColor(Color.parseColor("#7777AA"))
+            setTextColor(Color.parseColor(COLOR_SECONDARY))
             textSize = 15f
             gravity = Gravity.CENTER
             setLineSpacing(dp(4).toFloat(), 1f)
@@ -88,28 +88,30 @@ class MainActivity : AppCompatActivity() {
 
         layout.addView(spacer(32))
 
-        // === ONE BUTTON ===
+        // === Main Button ===
         actionBtn = Button(this).apply {
-            text = "📷  Escanear QR"
+            text = "Escanear QR"
             setTextColor(Color.WHITE)
-            textSize = 18f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             isAllCaps = false
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#6C5CE7"))
-                cornerRadius = dp(32).toFloat()
+                setColor(Color.parseColor(COLOR_ACCENT))
+                cornerRadius = dp(980).toFloat()
             }
-            setPadding(dp(48), dp(18), dp(48), dp(18))
+            setPadding(dp(48), dp(14), dp(48), dp(14))
+            stateListAnimator = null
+            elevation = 0f
             setOnClickListener { launchQRScanner() }
         }
         layout.addView(actionBtn)
 
-        layout.addView(spacer(24))
+        layout.addView(spacer(20))
 
-        // === Accessibility link (small, secondary) ===
+        // === Accessibility link ===
         layout.addView(TextView(this).apply {
-            text = "⚙ Activar sync automático"
-            setTextColor(Color.parseColor("#6C5CE7"))
+            text = "Activar sync automático"
+            setTextColor(Color.parseColor(COLOR_ACCENT))
             textSize = 13f
             gravity = Gravity.CENTER
             setPadding(0, dp(8), 0, dp(8))
@@ -122,16 +124,35 @@ class MainActivity : AppCompatActivity() {
 
         layout.addView(spacer(48))
 
-        // === How it works (minimal) ===
+        // === Separator ===
+        layout.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 1
+            ).apply { setMargins(dp(24), 0, dp(24), 0) }
+            setBackgroundColor(Color.parseColor(COLOR_BORDER))
+        })
+
+        layout.addView(spacer(24))
+
+        // === How it works ===
+        layout.addView(TextView(this).apply {
+            text = "Cómo funciona"
+            setTextColor(Color.parseColor(COLOR_TEXT))
+            textSize = 13f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(12))
+        })
+
         val steps = listOf(
-            "1. Abrí localhost:8066 en la Mac",
-            "2. Tocá 'Escanear QR' acá arriba",
-            "3. Listo — el clipboard se sincroniza"
+            "1.  Abrí localhost:8066 en el desktop",
+            "2.  Tocá Escanear QR acá arriba",
+            "3.  Listo — el clipboard se sincroniza"
         )
         for (step in steps) {
             layout.addView(TextView(this).apply {
                 text = step
-                setTextColor(Color.parseColor("#555577"))
+                setTextColor(Color.parseColor(COLOR_TERTIARY))
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setPadding(0, dp(3), 0, dp(3))
@@ -140,6 +161,14 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(layout)
         setContentView(root)
+
+        // Light status bar and navigation bar (must be after setContentView)
+        window.statusBarColor = Color.parseColor(COLOR_BG)
+        window.navigationBarColor = Color.parseColor(COLOR_BG)
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+
         requestPermissions()
         checkExistingPairing()
     }
@@ -153,10 +182,10 @@ class MainActivity : AppCompatActivity() {
         val token = getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
             .getString("pairing_token", "") ?: ""
         if (token.isNotEmpty()) {
-            statusText.text = "✅ Vinculado y sincronizando"
-            statusText.setTextColor(Color.parseColor("#00E676"))
-            actionBtn.text = "📷  Re-escanear QR"
-            (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor("#00B894"))
+            statusText.text = "Vinculado y sincronizando"
+            statusText.setTextColor(Color.parseColor(COLOR_GREEN))
+            actionBtn.text = "Re-escanear QR"
+            (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor(COLOR_GREEN))
         }
     }
 
@@ -193,7 +222,7 @@ class MainActivity : AppCompatActivity() {
         if (contents.startsWith("clipsync://pair?token=")) {
             val token = contents.substringAfter("token=")
 
-            // 1. Parar servicio viejo (limpiar token viejo de memoria)
+            // 1. Parar servicio viejo
             stopService(Intent(this, ClipboardService::class.java))
 
             // 2. Guardar token nuevo
@@ -204,12 +233,12 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.startForegroundService(this, Intent(this, ClipboardService::class.java))
 
             // 4. Actualizar UI
-            statusText.text = "✅ Vinculado y sincronizando"
-            statusText.setTextColor(Color.parseColor("#00E676"))
-            actionBtn.text = "📷  Re-escanear QR"
-            (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor("#00B894"))
+            statusText.text = "Vinculado y sincronizando"
+            statusText.setTextColor(Color.parseColor(COLOR_GREEN))
+            actionBtn.text = "Re-escanear QR"
+            (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor(COLOR_GREEN))
 
-            Toast.makeText(this, "✅ Token actualizado! Sync activo.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Token actualizado — sync activo", Toast.LENGTH_LONG).show()
         } else {
             Toast.makeText(this, "QR no válido — escaneá el de ClipSync", Toast.LENGTH_SHORT).show()
         }
@@ -217,8 +246,8 @@ class MainActivity : AppCompatActivity() {
 
     // === Helpers ===
 
-    private fun spacer(dpHeight: Int): android.view.View {
-        return android.view.View(this).apply {
+    private fun spacer(dpHeight: Int): View {
+        return View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(dpHeight)
             )

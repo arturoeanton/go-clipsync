@@ -5,6 +5,7 @@ import (
 	"hash/crc32"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
 )
@@ -23,7 +24,25 @@ var (
 	lastClipHash    uint32
 	bleReady        bool
 	clipChanged     bool
+
+	// OS detection
+	osName   string // "macOS" or "Linux" (display name)
+	osSource string // "mac" or "linux" (DB source identifier)
 )
+
+func init() {
+	switch runtime.GOOS {
+	case "darwin":
+		osName = "macOS"
+		osSource = "mac"
+	case "linux":
+		osName = "Linux"
+		osSource = "linux"
+	default:
+		osName = runtime.GOOS
+		osSource = runtime.GOOS
+	}
+}
 
 func clipHash(text string) uint32 {
 	return crc32.ChecksumIEEE([]byte(text))
@@ -31,8 +50,8 @@ func clipHash(text string) uint32 {
 
 func main() {
 	fmt.Println("╔═══════════════════════════════════════════╗")
-	fmt.Println("║   📋 ClipSync — Universal Clipboard       ║")
-	fmt.Println("║   Mac ↔ Android via Bluetooth LE          ║")
+	fmt.Printf("║   📋 ClipSync — Universal Clipboard       ║\n")
+	fmt.Printf("║   %s ↔ Android via Bluetooth LE        ║\n", osName)
 	fmt.Println("╚═══════════════════════════════════════════╝")
 
 	// Inicializar SQLite
@@ -44,8 +63,8 @@ func main() {
 	// Iniciar Web UI
 	startWebServer()
 
-	// Iniciar watcher del clipboard macOS
-	go macClipboardWatcher()
+	// Iniciar watcher del clipboard
+	go clipboardWatcher()
 
 	// Graceful shutdown
 	go func() {
@@ -62,6 +81,6 @@ func main() {
 	// Iniciar BLE Central
 	if err := startBLECentral(); err != nil {
 		fmt.Printf("[!] Error BLE: %s\n", err)
-		fmt.Println("[!] ¿Bluetooth está encendido en la Mac?")
+		fmt.Printf("[!] ¿Bluetooth está encendido en %s?\n", osName)
 	}
 }

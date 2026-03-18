@@ -7,10 +7,10 @@ import (
 	"github.com/atotto/clipboard"
 )
 
-// macClipboardWatcher vigila cambios en el clipboard de macOS
+// clipboardWatcher vigila cambios en el clipboard del sistema
 // y notifica via BLE cuando detecta un cambio.
-func macClipboardWatcher() {
-	fmt.Println("[Clipboard] Watcher de macOS iniciado")
+func clipboardWatcher() {
+	fmt.Printf("[Clipboard] Watcher de %s iniciado\n", osName)
 
 	// Leer contenido inicial
 	initialText, err := clipboard.ReadAll()
@@ -34,29 +34,29 @@ func macClipboardWatcher() {
 
 		clipMu.Lock()
 		if currentHash != lastClipHash {
-			fmt.Printf("[Mac → Android] Cambio detectado (%d chars)\n", len(currentText))
+			fmt.Printf("[%s → Android] Cambio detectado (%d chars)\n", osName, len(currentText))
 			lastClipContent = currentText
 			lastClipHash = currentHash
 			clipChanged = true
 			clipMu.Unlock()
-			saveClip(currentText, "mac", currentHash)
+			saveClip(currentText, osSource, currentHash)
 		} else {
 			clipMu.Unlock()
 		}
 	}
 }
 
-// setMacClipboard escribe texto al clipboard de macOS.
-func setMacClipboard(text string) {
+// setClipboard escribe texto al clipboard del sistema.
+func setClipboard(text string) {
 	clipMu.Lock()
 	lastClipContent = text
 	lastClipHash = clipHash(text)
 	clipMu.Unlock()
 
 	if err := clipboard.WriteAll(text); err != nil {
-		fmt.Printf("[!] Error escribiendo clipboard Mac: %s\n", err)
+		fmt.Printf("[!] Error escribiendo clipboard %s: %s\n", osName, err)
 	} else {
-		fmt.Printf("[+] Clipboard Mac actualizado (%d chars)\n", len(text))
+		fmt.Printf("[+] Clipboard %s actualizado (%d chars)\n", osName, len(text))
 		saveClip(text, "android", clipHash(text))
 	}
 }

@@ -179,7 +179,7 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 				text := string(fullContent)
 				if text != "" {
 					fmt.Printf("[Android → Mac] Recibido (%d chars)\n", len(text))
-					setMacClipboard(text)
+					setClipboard(text)
 				}
 			}
 		}

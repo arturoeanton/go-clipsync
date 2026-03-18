@@ -135,18 +135,21 @@ func getStats() map[string]interface{} {
 	stats := map[string]interface{}{
 		"total":        0,
 		"from_mac":     0,
+		"from_linux":   0,
 		"from_android": 0,
 	}
 	if db == nil {
 		return stats
 	}
 
-	var total, fromMac, fromAndroid int
+	var total, fromMac, fromLinux, fromAndroid int
 	db.QueryRow("SELECT COUNT(*) FROM clipboard_history").Scan(&total)
 	db.QueryRow("SELECT COUNT(*) FROM clipboard_history WHERE source='mac'").Scan(&fromMac)
+	db.QueryRow("SELECT COUNT(*) FROM clipboard_history WHERE source='linux'").Scan(&fromLinux)
 	db.QueryRow("SELECT COUNT(*) FROM clipboard_history WHERE source='android'").Scan(&fromAndroid)
 	stats["total"] = total
 	stats["from_mac"] = fromMac
+	stats["from_linux"] = fromLinux
 	stats["from_android"] = fromAndroid
 	return stats
 }
