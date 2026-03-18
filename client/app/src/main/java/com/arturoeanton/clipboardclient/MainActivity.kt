@@ -106,6 +106,37 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(actionBtn)
 
+        layout.addView(spacer(12))
+
+        // === Clear tokens button ===
+        layout.addView(Button(this).apply {
+            text = "Borrar vinculaciones"
+            setTextColor(Color.parseColor("#D32F2F"))
+            textSize = 13f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            isAllCaps = false
+            background = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1), Color.parseColor("#D32F2F"))
+                cornerRadius = dp(980).toFloat()
+            }
+            setPadding(dp(32), dp(10), dp(32), dp(10))
+            stateListAnimator = null
+            elevation = 0f
+            setOnClickListener {
+                ClipboardService.instance?.clearPairingTokens()
+                    ?: getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
+                        .edit().putString("pairing_token", "").apply()
+                stopService(Intent(this@MainActivity, ClipboardService::class.java))
+                ContextCompat.startForegroundService(this@MainActivity, Intent(this@MainActivity, ClipboardService::class.java))
+                statusText.text = "Escaneá el QR del dashboard\npara vincular y sincronizar"
+                statusText.setTextColor(Color.parseColor(COLOR_SECONDARY))
+                actionBtn.text = "Escanear QR"
+                (actionBtn.background as? GradientDrawable)?.setColor(Color.parseColor(COLOR_ACCENT))
+                Toast.makeText(this@MainActivity, "Todas las vinculaciones borradas", Toast.LENGTH_LONG).show()
+            }
+        })
+
         layout.addView(spacer(20))
 
         // === Accessibility link ===
@@ -122,42 +153,90 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        layout.addView(spacer(48))
-
-        // === Separator ===
-        layout.addView(View(this).apply {
+        // === Sync History Card ===
+        val historyCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E1E2E"))
+                cornerRadius = dp(16).toFloat()
+            }
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 1
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { setMargins(dp(24), 0, dp(24), 0) }
-            setBackgroundColor(Color.parseColor(COLOR_BORDER))
-        })
+        }
 
-        layout.addView(spacer(24))
-
-        // === How it works ===
-        layout.addView(TextView(this).apply {
-            text = "Cómo funciona"
+        historyCard.addView(TextView(this).apply {
+            text = "Sync History"
             setTextColor(Color.parseColor(COLOR_TEXT))
-            textSize = 13f
+            textSize = 14f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(12))
         })
 
-        val steps = listOf(
-            "1.  Abrí localhost:8066 en el desktop",
-            "2.  Tocá Escanear QR acá arriba",
-            "3.  Listo — el clipboard se sincroniza"
-        )
-        for (step in steps) {
-            layout.addView(TextView(this).apply {
-                text = step
-                setTextColor(Color.parseColor(COLOR_TERTIARY))
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(3), 0, dp(3))
-            })
+        val historyContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
+        historyCard.addView(historyContainer)
+
+        val historyScroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(200)
+            )
+            addView(historyCard)
+        }
+        layout.addView(historyScroll)
+
+        // Auto-refresh sync history every 2 seconds
+        val refreshHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val refreshRunnable = object : Runnable {
+            override fun run() {
+                val svc = ClipboardService.instance
+                if (svc != null) {
+                    // Update status
+                    val connectedCount = svc.getConnectedCount()
+                    val totalSync = svc.getTotalSyncCount()
+                    val tokenCount = getPairingToken().split("|").filter { it.isNotBlank() }.size
+                    statusText.text = if (connectedCount > 0) {
+                        "$connectedCount desktop(s) conectado(s) · $totalSync syncs\n$tokenCount token(s) vinculado(s)"
+                    } else {
+                        "$tokenCount desktop(s) vinculado(s)\nEsperando conexión BLE..."
+                    }
+                    statusText.setTextColor(Color.parseColor(if (connectedCount > 0) COLOR_GREEN else COLOR_SECONDARY))
+
+                    // Update history
+                    historyContainer.removeAllViews()
+                    val history = svc.getSyncHistory().take(10)
+                    if (history.isEmpty()) {
+                        historyContainer.addView(TextView(this@MainActivity).apply {
+                            text = "Sin actividad de sync aún"
+                            setTextColor(Color.parseColor(COLOR_TERTIARY))
+                            textSize = 12f
+                            gravity = Gravity.CENTER
+                        })
+                    } else {
+                        for (entry in history) {
+                            val arrow = if (entry.direction == "→") "📤" else "📥"
+                            val timeStr = android.text.format.DateFormat.format("HH:mm:ss", entry.timestamp)
+                            val preview = entry.text.take(40).replace("\n", "↵")
+                            historyContainer.addView(TextView(this@MainActivity).apply {
+                                text = "$arrow $timeStr  ${entry.chars}ch  $preview"
+                                setTextColor(Color.parseColor(COLOR_SECONDARY))
+                                textSize = 11f
+                                typeface = Typeface.MONOSPACE
+                                setPadding(0, dp(3), 0, dp(3))
+                            })
+                        }
+                    }
+                }
+                refreshHandler.postDelayed(this, 2000)
+            }
+        }
+        refreshHandler.postDelayed(refreshRunnable, 1000)
+
+        layout.addView(spacer(24))
 
         root.addView(layout)
         setContentView(root)
@@ -273,5 +352,10 @@ class MainActivity : AppCompatActivity() {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics
         ).toInt()
+    }
+
+    private fun getPairingToken(): String {
+        return getSharedPreferences("clipsync_prefs", MODE_PRIVATE)
+            .getString("pairing_token", "") ?: ""
     }
 }

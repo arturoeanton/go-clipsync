@@ -33,9 +33,18 @@ class ClipboardService : Service() {
         val CCC_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private const val PREFS_NAME = "clipsync_prefs"
         private const val PREF_TOKEN = "pairing_token"
+        private const val CHUNK_DATA_SIZE = 398 // 400 - 2 bytes header
 
         var instance: ClipboardService? = null
             private set
+
+        /** Sync history entry */
+        data class SyncEntry(
+            val text: String,
+            val direction: String, // "→" sent, "←" received
+            val timestamp: Long = System.currentTimeMillis(),
+            val chars: Int = text.length
+        )
 
         /** Enviar texto a los desktops via BLE desde cualquier parte de la app */
         fun sendToMac(text: String) {
@@ -43,9 +52,16 @@ class ClipboardService : Service() {
                 Log.w(TAG, "Servicio no activo, no se puede enviar")
                 return
             }
+            val hash = svc.crc32(text)
+            // Skip if we already have this content (prevents echo from Accessibility Service)
+            if (hash == svc.lastClipHash) {
+                Log.d(TAG, "sendToMac: hash ya coincide, skip (${text.length} chars)")
+                return
+            }
             svc.lastClipContent = text
-            svc.lastClipHash = svc.crc32(text)
+            svc.lastClipHash = hash
             svc.notifyDesktops()
+            svc.addSyncEntry(text, "→")
             Log.i(TAG, "[Android → Desktops] Enviado via Share (${text.length} chars)")
         }
 
@@ -60,6 +76,7 @@ class ClipboardService : Service() {
     private var clipboardManager: ClipboardManager? = null
     private var lastClipHash: Long = 0
     private var lastClipContent: String = ""
+    private var fromDesktop: Boolean = false // suppress echo back to desktops
 
     // Multi-device: set of connected desktops
     private val connectedDevices: MutableSet<BluetoothDevice> =
@@ -71,6 +88,25 @@ class ClipboardService : Service() {
     private var hashCharacteristic: BluetoothGattCharacteristic? = null
     private val chunkBuffer = mutableMapOf<Int, ByteArray>() // Para reassembly de chunks
     private var expectedChunks = 0
+
+    // Sync history (in-memory, last 50 entries)
+    private val syncHistory = java.util.concurrent.ConcurrentLinkedDeque<SyncEntry>()
+    private var totalSyncCount = 0L
+
+    fun getSyncHistory(): List<SyncEntry> = syncHistory.toList()
+    fun getTotalSyncCount(): Long = totalSyncCount
+    fun getLastSync(): SyncEntry? = syncHistory.peekFirst()
+
+    private fun addSyncEntry(text: String, direction: String) {
+        syncHistory.addFirst(SyncEntry(text.take(200), direction))
+        totalSyncCount++
+        while (syncHistory.size > 50) syncHistory.removeLast()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand: flags=$flags startId=$startId")
+        return START_STICKY // Restart service if killed by system
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -335,10 +371,18 @@ class ClipboardService : Service() {
                     if (text != null && text.isNotBlank()) {
                         val hash = crc32(text)
                         if (hash != lastClipHash) {
-                            lastClipContent = text
-                            lastClipHash = hash
-                            Log.i(TAG, "[Android → Desktops] Cambio detectado (${text.length} chars): ${text.take(50)}")
-                            notifyDesktops()
+                            // Skip if this change came from a desktop (prevent echo)
+                            if (fromDesktop) {
+                                fromDesktop = false
+                                lastClipHash = hash
+                                lastClipContent = text
+                            } else {
+                                lastClipContent = text
+                                lastClipHash = hash
+                                Log.i(TAG, "[Android → Desktops] Cambio detectado (${text.length} chars): ${text.take(50)}")
+                                notifyDesktops()
+                                addSyncEntry(text, "→")
+                            }
                         }
                     }
                 }
@@ -371,9 +415,11 @@ class ClipboardService : Service() {
     }
 
     private fun setAndroidClipboard(text: String) {
+        fromDesktop = true // prevent poller from echoing this back
         lastClipContent = text
         lastClipHash = crc32(text)
         clipboardManager?.setPrimaryClip(ClipData.newPlainText("ClipSync", text))
+        addSyncEntry(text, "←")
     }
 
     fun getPairingToken(): String {
@@ -402,10 +448,11 @@ class ClipboardService : Service() {
      * Notifica a todos los desktops conectados del cambio de clipboard.
      * @param excludeDevice Si no es null, salta ese device (el que envió el texto, para evitar loops).
      */
+    @Synchronized
     private fun notifyDesktops(excludeDevice: BluetoothDevice? = null) {
         if (connectedDevices.isEmpty()) return
 
-        val devices = connectedDevices.toSet() // Snapshot thread-safe
+        val devices = connectedDevices.toSet()
         val targetCount = if (excludeDevice != null) devices.size - 1 else devices.size
 
         if (targetCount <= 0 && excludeDevice != null) {
@@ -414,37 +461,58 @@ class ClipboardService : Service() {
         }
 
         try {
+            val contentBytes = lastClipContent.toByteArray()
+            val totalChunks = if (contentBytes.isEmpty()) 1
+                else (contentBytes.size + CHUNK_DATA_SIZE - 1) / CHUNK_DATA_SIZE
+            val hashBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
+                .putInt(lastClipHash.toInt()).array()
+
             for (device in devices) {
                 if (device == excludeDevice) continue
                 try {
-                    // Preparar datos
-                    val hashBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(lastClipHash.toInt()).array()
-                    val contentBytes = lastClipContent.toByteArray().let {
-                        if (it.size > 512) it.copyOfRange(0, 512) else it
-                    }
-
+                    // 1. Notificar hash primero
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        // API 33+: usar el nuevo método con valor explícito (evita cache)
                         hashCharacteristic?.let { char ->
                             gattServer?.notifyCharacteristicChanged(device, char, false, hashBytes)
                         }
-                        contentCharacteristic?.let { char ->
-                            gattServer?.notifyCharacteristicChanged(device, char, false, contentBytes)
-                        }
                     } else {
-                        // API < 33: método legacy con char.value
                         hashCharacteristic?.let { char ->
                             char.value = hashBytes
                             @Suppress("DEPRECATION")
                             gattServer?.notifyCharacteristicChanged(device, char, false)
                         }
-                        contentCharacteristic?.let { char ->
-                            char.value = contentBytes
-                            @Suppress("DEPRECATION")
-                            gattServer?.notifyCharacteristicChanged(device, char, false)
+                    }
+
+                    // 2. Enviar contenido (con chunking si > CHUNK_DATA_SIZE)
+                    for (i in 0 until totalChunks) {
+                        val start = i * CHUNK_DATA_SIZE
+                        val end = minOf(start + CHUNK_DATA_SIZE, contentBytes.size)
+                        val chunkData = contentBytes.copyOfRange(start, end)
+
+                        // Header: [chunkIndex, totalChunks] + data
+                        val chunk = ByteArray(2 + chunkData.size)
+                        chunk[0] = i.toByte()
+                        chunk[1] = totalChunks.toByte()
+                        System.arraycopy(chunkData, 0, chunk, 2, chunkData.size)
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            contentCharacteristic?.let { char ->
+                                gattServer?.notifyCharacteristicChanged(device, char, false, chunk)
+                            }
+                        } else {
+                            contentCharacteristic?.let { char ->
+                                char.value = chunk
+                                @Suppress("DEPRECATION")
+                                gattServer?.notifyCharacteristicChanged(device, char, false)
+                            }
+                        }
+
+                        if (totalChunks > 1) {
+                            Thread.sleep(30) // Small delay between chunks
                         }
                     }
-                    Log.d(TAG, "Notificado: ${device.address}")
+
+                    Log.d(TAG, "Notificado: ${device.address} (${contentBytes.size} bytes, $totalChunks chunks)")
                 } catch (e: SecurityException) {
                     Log.e(TAG, "Error notificando ${device.address}: ${e.message}")
                 }

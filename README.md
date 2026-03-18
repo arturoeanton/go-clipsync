@@ -13,9 +13,11 @@
 | **QR Pairing** | Secure token-based pairing via QR code scan |
 | **BLE Only** | Works over Bluetooth LE — no WiFi or internet needed |
 | **Chunked Transfer** | Supports large text (code, articles) up to ~126KB |
+| **Anti-Echo Loop** | Dual-layer echo prevention on Android + desktop |
 | **Web Dashboard** | Clean flat UI at `localhost:8066` with history, search, stats |
 | **SQLite History** | Persistent clipboard history with search |
 | **Persistent Pairing** | Pair once, stays paired across restarts |
+| **Token Management** | Clear all pairings from Android UI |
 | **Cross-platform** | Runs on macOS and Linux (auto-detected) |
 | **Accessibility Service** | Automatic Android → desktop sync (no manual action) |
 

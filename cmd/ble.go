@@ -24,51 +24,67 @@ func startBLECentral() error {
 	pairingUUID, _ := bluetooth.ParseUUID(ClipPairingUUID)
 
 	for {
+		var device bluetooth.Device
+		var connected bool
+
+		// === Scan con timeout ===
 		fmt.Println("[BLE] >>> Escaneando... (asegurate que el Android tiene la app abierta con servicio activo)")
 
 		ch := make(chan bluetooth.ScanResult, 1)
-		deviceCount := 0
-		err := adapter.Scan(func(adapter *bluetooth.Adapter, result bluetooth.ScanResult) {
-			deviceCount++
-			name := result.LocalName()
-			addr := result.Address.String()
-			hasService := result.HasServiceUUID(serviceUUID)
+		scanDone := make(chan struct{})
 
-			if name != "" || hasService {
-				fmt.Printf("[BLE] #%d Visto: nombre=%q addr=%s RSSI=%d tieneServicio=%v\n",
-					deviceCount, name, addr, result.RSSI, hasService)
-			} else if deviceCount%20 == 0 {
-				fmt.Printf("[BLE] ... %d dispositivos escaneados hasta ahora (sin match)...\n", deviceCount)
-			}
+		go func() {
+			err := adapter.Scan(func(adapter *bluetooth.Adapter, result bluetooth.ScanResult) {
+				hasService := result.HasServiceUUID(serviceUUID)
 
-			if hasService || name == "ClipSync" {
-				fmt.Printf("[BLE] ✅ ¡Match! nombre=%q addr=%s\n", name, addr)
-				adapter.StopScan()
-				ch <- result
+				// Solo loguear dispositivos con el servicio ClipSync
+				if hasService {
+					name := result.LocalName()
+					fmt.Printf("[BLE] ✅ ¡Match! nombre=%q addr=%s RSSI=%d\n", name, result.Address.String(), result.RSSI)
+					adapter.StopScan()
+					ch <- result
+				}
+			})
+			if err != nil {
+				fmt.Printf("[BLE] Error escaneando: %s\n", err)
 			}
-		})
-		if err != nil {
-			fmt.Printf("[BLE] Error escaneando: %s. Reintentando en 5s...\n", err)
-			time.Sleep(5 * time.Second)
+			close(scanDone)
+		}()
+
+		// Timeout de 15 segundos
+		select {
+		case result := <-ch:
+			fmt.Printf("[BLE] Conectando a %s...\n", result.Address.String())
+			dev, err := adapter.Connect(result.Address, bluetooth.ConnectionParams{})
+			if err != nil {
+				fmt.Printf("[BLE] Error conectando: %s. Reintentando...\n", err)
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			device = dev
+			connected = true
+		case <-time.After(15 * time.Second):
+			fmt.Println("[BLE] Scan timeout (15s). Reintentando...")
+			adapter.StopScan()
+			<-scanDone
 			continue
 		}
 
-		result := <-ch
-
-		fmt.Printf("[BLE] Conectando a %s...\n", result.Address.String())
-		device, err := adapter.Connect(result.Address, bluetooth.ConnectionParams{})
-		if err != nil {
-			fmt.Printf("[BLE] Error conectando: %s. Reintentando...\n", err)
-			time.Sleep(3 * time.Second)
+		if !connected {
+			time.Sleep(1 * time.Second)
 			continue
 		}
+
 		fmt.Println("[BLE] ✅ Conectado")
 
-		err = handleConnection(device, serviceUUID, contentUUID, hashUUID, pairingUUID)
+		// Cachear dirección para reconexión rápida
+		cacheDeviceAddress(device.Address.String())
+
+		err := handleConnection(device, serviceUUID, contentUUID, hashUUID, pairingUUID)
 		if err != nil {
 			fmt.Printf("[BLE] Conexión perdida: %s. Reconectando...\n", err)
 			device.Disconnect()
-			time.Sleep(2 * time.Second)
+			time.Sleep(500 * time.Millisecond) // Reconexión rápida
 			continue
 		}
 	}
@@ -159,26 +175,77 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 	}
 	fmt.Println("[BLE] ✅ Token verificado — sync autorizado")
 
+	// Chunk buffer for reassembling multi-chunk notifications from Android
+	notifyChunks := make(map[int][]byte)
+	notifyExpectedChunks := 0
+
 	// Suscribirse a notificaciones del contenido (Android → Desktop)
 	err = contentChar.EnableNotifications(func(buf []byte) {
 		if !isPaired() {
 			return
 		}
+
+		// Detect chunked header: [index, total, data...]
+		if len(buf) >= 2 {
+			chunkIndex := int(buf[0])
+			totalChunks := int(buf[1])
+
+			if totalChunks > 0 && totalChunks <= 255 && chunkIndex < totalChunks {
+				data := buf[2:]
+
+				if totalChunks == 1 {
+					// Single chunk — process directly
+					text := string(data)
+					if text != "" {
+						fmt.Printf("[Android → %s] Recibido (%d chars)\n", osName, len(text))
+						clipMu.Lock()
+						pendingClip = text
+						clipMu.Unlock()
+					}
+					return
+				}
+
+				// Multi-chunk: buffer and reassemble
+				notifyChunks[chunkIndex] = make([]byte, len(data))
+				copy(notifyChunks[chunkIndex], data)
+				notifyExpectedChunks = totalChunks
+				fmt.Printf("[Android → %s] Chunk %d/%d recibido (%d bytes)\n", osName, chunkIndex+1, totalChunks, len(data))
+
+				if len(notifyChunks) >= notifyExpectedChunks {
+					// All chunks received — reassemble
+					totalSize := 0
+					for _, chunk := range notifyChunks {
+						totalSize += len(chunk)
+					}
+					full := make([]byte, 0, totalSize)
+					for i := 0; i < notifyExpectedChunks; i++ {
+						if chunk, ok := notifyChunks[i]; ok {
+							full = append(full, chunk...)
+						}
+					}
+					// Clear buffer
+					for k := range notifyChunks {
+						delete(notifyChunks, k)
+					}
+					notifyExpectedChunks = 0
+
+					text := string(full)
+					fmt.Printf("[Android → %s] Recibido completo (%d chars, %d chunks)\n", osName, len(text), totalChunks)
+					clipMu.Lock()
+					pendingClip = text
+					clipMu.Unlock()
+				}
+				return
+			}
+		}
+
+		// Fallback: raw text (no chunking header)
 		text := string(buf)
 		if text != "" {
-			fmt.Printf("[Android → %s] Recibido via notificación (%d chars)\n", osName, len(text))
+			fmt.Printf("[Android → %s] Recibido raw (%d chars)\n", osName, len(text))
 			clipMu.Lock()
-			lastClipContent = text
-			lastClipHash = clipHash(text)
-			fromAndroid = true
+			pendingClip = text
 			clipMu.Unlock()
-
-			if err := clipboard.WriteAll(text); err != nil {
-				fmt.Printf("[!] Error escribiendo clipboard %s: %s\n", osName, err)
-			} else {
-				fmt.Printf("[+] Clipboard %s actualizado (%d chars)\n", osName, len(text))
-				saveClip(text, "android", clipHash(text))
-			}
 		}
 	})
 	if err != nil {
@@ -221,6 +288,28 @@ func handleConnection(device bluetooth.Device, serviceUUID, contentUUID, hashUUI
 			fmt.Println("[BLE] ⛔ Desvinculado — cortando conexión BLE")
 			bleReady = false
 			return fmt.Errorf("unpaired — disconnecting")
+		}
+
+		// Procesar clipboard pendiente del Android (fuera del callback BLE)
+		clipMu.Lock()
+		pending := pendingClip
+		pendingClip = ""
+		clipMu.Unlock()
+
+		if pending != "" {
+			if err := clipboard.WriteAll(pending); err != nil {
+				fmt.Printf("[!] Error escribiendo clipboard %s: %s\n", osName, err)
+			} else {
+				fmt.Printf("[+] Clipboard %s actualizado (%d chars)\n", osName, len(pending))
+				saveClip(pending, "android", clipHash(pending))
+			}
+			// Actualizar estado DESPUÉS de escribir al clipboard
+			clipMu.Lock()
+			lastClipContent = pending
+			lastClipHash = clipHash(pending)
+			fromAndroid = true
+			clipChanged = false
+			clipMu.Unlock()
 		}
 
 		clipMu.Lock()

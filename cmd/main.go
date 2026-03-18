@@ -24,7 +24,8 @@ var (
 	lastClipHash    uint32
 	bleReady        bool
 	clipChanged     bool
-	fromAndroid     bool // suppress echo back to Android
+	fromAndroid     bool   // suppress echo back to Android
+	pendingClip     string // clipboard text pending write from BLE callback
 
 	// OS detection
 	osName   string // "macOS" or "Linux" (display name)
